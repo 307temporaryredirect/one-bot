@@ -144,19 +144,17 @@ if __name__ == "__main__":
 
     def run_web():
         print("WEB STARTING...")
-        app.run(host="0.0.0.0", port=8080)
+        app.run(
+            host="0.0.0.0",
+            port=8080,
+            debug=False,
+            use_reloader=False
+        )
 
     def run_bot():
         print("BOT STARTING...")
         bot.infinity_polling(skip_pending=True)
 
-    # web dulu
-    t = threading.Thread(target=run_web)
-    t.start()
+    threading.Thread(target=run_web, daemon=True).start()
 
-    # kasih waktu Flask naik
-    import time
-    time.sleep(2)
-
-    # bot main thread
     run_bot()
