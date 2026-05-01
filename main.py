@@ -139,15 +139,24 @@ def handle_fess(message):
 # ======================
 # RUN FUNCTIONS
 # ======================
-def run_web():
-    app.run(host="0.0.0.0", port=8080)
-
-def run_bot():
-    bot.infinity_polling(skip_pending=True)
-
-# ======================
-# MAIN (FLY SAFE VERSION)
-# ======================
 if __name__ == "__main__":
-    threading.Thread(target=run_web, daemon=True).start()
+    import threading
+
+    def run_web():
+        print("WEB STARTING...")
+        app.run(host="0.0.0.0", port=8080)
+
+    def run_bot():
+        print("BOT STARTING...")
+        bot.infinity_polling(skip_pending=True)
+
+    # web dulu
+    t = threading.Thread(target=run_web)
+    t.start()
+
+    # kasih waktu Flask naik
+    import time
+    time.sleep(2)
+
+    # bot main thread
     run_bot()
