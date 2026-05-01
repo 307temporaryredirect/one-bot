@@ -20,7 +20,7 @@ bot.remove_webhook()
 app = Flask(__name__)
 
 # ======================
-# WEB SERVER (FLY NEED THIS)
+# WEB SERVER (WAJIB UNTUK FLY)
 # ======================
 @app.route("/")
 def home():
@@ -62,7 +62,7 @@ def can_send(user_id):
     return False
 
 # ======================
-# COMMAND /START
+# /START COMMAND
 # ======================
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -137,10 +137,9 @@ def handle_fess(message):
     pending_users.discard(user_id)
 
 # ======================
-# RUN FUNCTIONS
+# RUN (FLY STABLE VERSION)
 # ======================
 if __name__ == "__main__":
-    import threading
 
     def run_web():
         print("WEB STARTING...")
@@ -155,6 +154,8 @@ if __name__ == "__main__":
         print("BOT STARTING...")
         bot.infinity_polling(skip_pending=True)
 
+    # web jalan di background
     threading.Thread(target=run_web, daemon=True).start()
 
+    # bot jadi main process
     run_bot()
