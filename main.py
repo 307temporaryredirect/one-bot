@@ -1,161 +1,171 @@
+import os
 import telebot
 from telebot import types
-import os
-from datetime import datetime
 from flask import Flask
 import threading
+from datetime import datetime
 
-# ======================
-# CONFIG
-# ======================
 TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    print("BOT_TOKEN tidak ada")
+    exit()
+
 CHANNEL_ID = -1002445709942
 
-if not TOKEN:
-    raise Exception("BOT_TOKEN tidak ditemukan!")
-
 bot = telebot.TeleBot(TOKEN)
-bot.remove_webhook()
-
 app = Flask(__name__)
 
-# ======================
-# WEB SERVER (WAJIB UNTUK FLY)
-# ======================
 @app.route("/")
 def home():
     return "Bot is running 🚀"
 
-# ======================
-# DATA STORAGE
-# ======================
 pending_users = set()
 user_fess_count = {}
-user_last_message = {}
+user_last_messages = {}  # sekarang simpan list 5 pesan terakhir
 total_fess_sent = 0
 
 banned_words = ['anjing', 'bangsat', 'kontol', 'tolol']
 
-# ======================
-# HELPERS
-# ======================
 def contains_bad_words(text):
     return any(word in text.lower() for word in banned_words)
 
 def can_send(user_id):
     today = datetime.now().date()
-
     if user_id not in user_fess_count:
         user_fess_count[user_id] = [(today, 1)]
         return True
-
     date_list = user_fess_count[user_id]
-
     if date_list[-1][0] != today:
         user_fess_count[user_id] = [(today, 1)]
         return True
-
     elif date_list[-1][1] < 5:
         user_fess_count[user_id][-1] = (today, date_list[-1][1] + 1)
         return True
+    else:
+        return False
 
-    return False
-
-# ======================
-# /START COMMAND
-# ======================
 @bot.message_handler(commands=['start'])
 def start(message):
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("Kirim Menfess", callback_data="send_fess"))
-    markup.add(types.InlineKeyboardButton("Lihat Statistik", callback_data="show_stats"))
-    markup.add(types.InlineKeyboardButton("Hapus Fess Terakhir", callback_data="unsend_fess"))
+    btn_send = types.InlineKeyboardButton("Kirim Menfess", callback_data="send_fess")
+    btn_stat = types.InlineKeyboardButton("Lihat Statistik", callback_data="show_stats")
+    btn_unsend = types.InlineKeyboardButton("Hapus Fess", callback_data="unsend_fess")
+    markup.add(btn_send)
+    markup.add(btn_stat, btn_unsend)
+    bot.send_message(message.chat.id, "Hai! Pilih menu di bawah ini:", reply_markup=markup)
 
-    bot.send_message(message.chat.id, "Hai! Pilih menu:", reply_markup=markup)
-
-# ======================
-# CALLBACK MENU
-# ======================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_menu(call):
     user_id = call.from_user.id
 
     if call.data == "send_fess":
         if not can_send(user_id):
-            bot.send_message(user_id, "Limit 5 menfess per hari.")
+            bot.send_message(user_id, "Hey cornerpeeps! Kamu sudah mencapai batas 5 menfess hari ini. Coba lagi besok ya!")
             return
-
         pending_users.add(user_id)
-        bot.send_message(user_id, "Kirim menfess kamu sekarang.")
+        bot.send_message(user_id, "Cornerpeeps! Kamu bisa langsung ketik isi menfess yang mau kamu kirim sekarang tanpa trigger apapun (bisa teks aja atau gambar dengan teks) lalu kirim.")
 
     elif call.data == "show_stats":
         bot.send_message(user_id, f"Total menfess terkirim: {total_fess_sent}")
 
+    elif call.data == "unsend_fess":
+        messages = user_last_messages.get(user_id, [])
+        if not messages:
+            bot.send_message(user_id, "Kamu belum mengirim fess apapun.")
+        else:
+            markup = types.InlineKeyboardMarkup()
+            for i, (msg_id, preview) in enumerate(messages):
+                markup.add(types.InlineKeyboardButton(
+                    f"🗑 Fess {i+1}: {preview[:30]}...",
+                    callback_data=f"delete_{msg_id}"
+                ))
+            markup.add(types.InlineKeyboardButton("❌ Batal", callback_data="cancel_delete"))
+            bot.send_message(user_id, "Pilih fess yang mau dihapus:", reply_markup=markup)
+
+    elif call.data.startswith("delete_"):
+        msg_id = int(call.data.split("_")[1])
+        try:
+            bot.delete_message(CHANNEL_ID, msg_id)
+            # hapus dari list
+            if user_id in user_last_messages:
+                user_last_messages[user_id] = [
+                    (mid, prev) for mid, prev in user_last_messages[user_id] if mid != msg_id
+                ]
+            bot.edit_message_text("✅ Fess berhasil dihapus!", call.message.chat.id, call.message.message_id)
+        except Exception:
+            bot.edit_message_text("❌ Gagal hapus fess. Mungkin sudah terlalu lama.", call.message.chat.id, call.message.message_id)
+
+    elif call.data == "cancel_delete":
+        bot.edit_message_text("Dibatalkan.", call.message.chat.id, call.message.message_id)
+
     bot.answer_callback_query(call.id)
 
-# ======================
-# HANDLE MESSAGE
-# ======================
 @bot.message_handler(func=lambda message: True, content_types=['text', 'photo'])
 def handle_fess(message):
     global total_fess_sent
-
     user_id = message.from_user.id
 
     if user_id not in pending_users:
-        bot.reply_to(message, "Klik /start dulu.")
+        bot.reply_to(message, "Klik /start dan tekan 'Kirim Menfess' dulu untuk mulai.")
         return
 
     try:
         msg_sent = None
+        username = message.from_user.username or f"id:{user_id}"
 
         if message.content_type == 'text':
             text = message.text.strip()
-
+            if len(text) > 4000:
+                bot.reply_to(message, "Pesan terlalu panjang! Maksimal 4000 karakter.")
+                return
             if contains_bad_words(text):
-                return bot.reply_to(message, "Ada kata terlarang.")
-
+                bot.reply_to(message, "Pesan kamu mengandung kata yang tidak diperbolehkan.")
+                return
             msg_sent = bot.send_message(CHANNEL_ID, "💚 " + text)
+            preview = text
 
         elif message.content_type == 'photo':
             file_id = message.photo[-1].file_id
-            caption = message.caption or ""
-
+            caption = message.caption.strip() if message.caption else ""
+            if len(caption) > 1024:
+                bot.reply_to(message, "Caption terlalu panjang! Maksimal 1024 karakter.")
+                return
             if contains_bad_words(caption):
-                return bot.reply_to(message, "Caption terlarang.")
-
+                bot.reply_to(message, "Caption kamu mengandung kata yang tidak diperbolehkan.")
+                return
             msg_sent = bot.send_photo(CHANNEL_ID, file_id, caption="💚 " + caption)
+            preview = f"[foto] {caption}" if caption else "[foto]"
 
         if msg_sent:
             total_fess_sent += 1
-            user_last_message[user_id] = msg_sent.message_id
-            bot.send_message(user_id, "Terkirim!")
+
+            # simpan max 5 pesan terakhir
+            if user_id not in user_last_messages:
+                user_last_messages[user_id] = []
+            user_last_messages[user_id].append((msg_sent.message_id, preview))
+            if len(user_last_messages[user_id]) > 5:
+                user_last_messages[user_id].pop(0)
+
+            link = f"https://t.me/c/{str(CHANNEL_ID)[4:]}/{msg_sent.message_id}"
+            bot.send_message(user_id, f"Fess kamu sudah terkirim!\n\n[Lihat Fess]({link})", parse_mode="Markdown")
+            with open("log.txt", "a") as f:
+                log = message.text if message.content_type == 'text' else caption
+                f.write(f"{username} ({user_id}): {log}\n")
 
     except Exception as e:
-        bot.reply_to(message, f"Error: {e}")
+        bot.reply_to(message, f"Gagal kirim fess. Error: {e}")
 
     pending_users.discard(user_id)
 
-# ======================
-# RUN (FLY STABLE VERSION)
-# ======================
+def run_web():
+    print("WEB START")
+    app.run(host="0.0.0.0", port=8080)
+
+def run_bot():
+    print("BOT START")
+    bot.remove_webhook()
+    bot.infinity_polling(skip_pending=True)
+
 if __name__ == "__main__":
-
-    def run_web():
-        print("WEB STARTING...")
-        app.run(
-            host="0.0.0.0",
-            port=8080,
-            debug=False,
-            use_reloader=False
-        )
-
-    def run_bot():
-        print("BOT STARTING...")
-        bot.infinity_polling(skip_pending=True)
-
-    # web jalan di background
     threading.Thread(target=run_web, daemon=True).start()
-
-    # bot jadi main process
     run_bot()
